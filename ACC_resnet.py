@@ -8,7 +8,6 @@ import random
 from tqdm import tqdm
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-import os
 
 # 字符集映射
 char_classes = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
@@ -17,58 +16,27 @@ num_classes = len(char_classes)
 
 # 1. 定義生成隨機字母、數字及其邊框標註的數據集
 class SynthTextDataset(Dataset):
-    def __init__(self, num_samples=100000, transform=None, image_size=(128, 128), custom_data_path=None, add_custom_data=True):
+    def __init__(self, num_samples=100000, transform=None, image_size=(128, 128)):
         self.num_samples = num_samples
         self.transform = transform
         self.image_size = image_size
         self.font = ImageFont.load_default()
-        self.add_custom_data = add_custom_data
-
-        # 随机字符集定义
-        self.char_classes = char_classes
-        self.char_to_idx = char_to_idx
-
-        # 加载自定义数据
-        self.custom_data = []
-        if custom_data_path and os.path.exists(custom_data_path):
-            for file in os.listdir(custom_data_path):
-                if file.endswith(".png") or file.endswith(".jpg"):
-                    img_path = os.path.join(custom_data_path, file)
-                    label_file = file.replace(".png", ".txt").replace(".jpg", ".txt")
-                    label_path = os.path.join(custom_data_path, label_file)
-                    if os.path.exists(label_path):
-                        with open(label_path, 'r') as f:
-                            text = f.readline().strip()
-                            self.custom_data.append((img_path, text))
-        
-        # 如果添加自定义数据，样本数量为合成数据与自定义数据之和
-        if add_custom_data and len(self.custom_data) > 0:
-            self.num_samples += len(self.custom_data)
 
     def __len__(self):
         return self.num_samples
 
     def __getitem__(self, idx):
-        # 选择合成数据还是自定义数据
-        if idx < len(self.custom_data) and self.add_custom_data:
-            # 使用自定义数据
-            img_path, text = self.custom_data[idx]
-            img = Image.open(img_path).convert('RGB')
-        else:
-            # 生成合成数据
-            text = random.choice(self.char_classes)  # 随机选择字符
-            img = Image.new('RGB', self.image_size, color=(255, 255, 255))
-            draw = ImageDraw.Draw(img)
+        text = random.choice(char_classes)  # 隨機選擇字符
+        img = Image.new('RGB', self.image_size, color=(255, 255, 255))
+        draw = ImageDraw.Draw(img)
 
-            # 计算文字大小和位置
-            text_size = draw.textbbox((0, 0), text, font=self.font)
-            width, height = text_size[2] - text_size[0], text_size[3] - text_size[1]
-            x_center = random.randint(width // 2, self.image_size[0] - width // 2)
-            y_center = random.randint(height // 2, self.image_size[1] - height // 2)
-            draw.text((x_center - width // 2, y_center - height // 2), text, font=self.font, fill=(0, 0, 0))
+        text_size = draw.textbbox((0, 0), text, font=self.font)
+        width, height = text_size[2] - text_size[0], text_size[3] - text_size[1]
+        x_center = random.randint(width // 2, self.image_size[0] - width // 2)
+        y_center = random.randint(height // 2, self.image_size[1] - height // 2)
+        draw.text((x_center - width // 2, y_center - height // 2), text, font=self.font, fill=(0, 0, 0))
 
-        # 生成标签信息（包括中心坐标、宽高、类别索引）
-        label_idx = self.char_to_idx.get(text, -1)
+        label_idx = char_to_idx[text]
         box = [x_center / self.image_size[0], 
                y_center / self.image_size[1], 
                width / self.image_size[0], 
@@ -79,6 +47,7 @@ class SynthTextDataset(Dataset):
             img = self.transform(img)
 
         return img, torch.tensor([box], dtype=torch.float32), text
+
 
 # 2. 定義ResNet模型的基本塊
 class BasicBlock(nn.Module):
@@ -166,15 +135,12 @@ def train_model():
     user_input = input("Enter 1 to continue training from existing weights, 0 to start fresh: ").strip()
     load_existing_model = user_input == '1'
 
-    sample_size = 50
+    sample_size = 50000
     batch_size = 32
-    epochs = 1
+    epochs = 100
 
     transform = transforms.Compose([transforms.Resize((128, 128)), transforms.ToTensor()])
-    dataset = SynthTextDataset(num_samples=sample_size, transform=transform, custom_data_path="D:\\NLP\\resnet18_V2\\train")
-    print("Dataset size:", len(dataset))  # 输出数据集大小，验证是否正确加载
-    print("First sample:", dataset[0])    # 输出第一个样本的信息
-
+    dataset = SynthTextDataset(num_samples=sample_size, transform=transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     model = CustomResNet18(num_classes=num_classes)
